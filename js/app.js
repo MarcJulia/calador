@@ -27,6 +27,9 @@ let minimap = null;         // Leaflet map in bottom-right inset
 let minimapBoat = null;     // Leaflet marker for GPS on minimap
 let followMode = false;     // auto-follow boat between tiles
 let followCurrentTileKey = null; // track which tile we're in during follow
+let focusMode = false;      // chase camera behind the boat
+let focusCamPos = null;     // smoothed camera position
+let focusCamTarget = null;  // smoothed look-at target
 let depthLineOn = false;    // show vertical line to sea floor
 let depthLine3D = null;     // THREE.Line object
 let depthDot3D = null;      // dot at sea floor
@@ -146,6 +149,45 @@ function updateGPS3D(pos) {
     // Update boat coords display — depth below surface shown as negative
     const geo = terrain.positionToGeo(pos3d);
     hoverCoords.textContent = `${pos.lat.toFixed(4)}°N  ${pos.lon.toFixed(4)}°E  ${geo.depth.toFixed(1)}m  ${pos.speed.toFixed(1)}kts  ${pos.phase}`;
+
+    // Focus mode — chase camera behind the boat, looking forward
+    if (focusMode && current3D) {
+      const { camera, controls } = current3D;
+      const headingRad = pos.heading * Math.PI / 180;
+      const fwdX = Math.sin(headingRad);
+      const fwdZ = -Math.cos(headingRad);
+      const camDist = 50;
+      const camHeight = 25;
+      const lookAhead = 30;
+
+      const desiredPos = {
+        x: pos3d.x - fwdX * camDist,
+        y: surfaceY + camHeight,
+        z: pos3d.z - fwdZ * camDist,
+      };
+      const desiredTarget = {
+        x: pos3d.x + fwdX * lookAhead,
+        y: surfaceY,
+        z: pos3d.z + fwdZ * lookAhead,
+      };
+
+      const smooth = 0.04; // lower = smoother
+      if (!focusCamPos) {
+        focusCamPos = { ...desiredPos };
+        focusCamTarget = { ...desiredTarget };
+      } else {
+        focusCamPos.x += (desiredPos.x - focusCamPos.x) * smooth;
+        focusCamPos.y += (desiredPos.y - focusCamPos.y) * smooth;
+        focusCamPos.z += (desiredPos.z - focusCamPos.z) * smooth;
+        focusCamTarget.x += (desiredTarget.x - focusCamTarget.x) * smooth;
+        focusCamTarget.y += (desiredTarget.y - focusCamTarget.y) * smooth;
+        focusCamTarget.z += (desiredTarget.z - focusCamTarget.z) * smooth;
+      }
+
+      camera.position.set(focusCamPos.x, focusCamPos.y, focusCamPos.z);
+      controls.target.set(focusCamTarget.x, focusCamTarget.y, focusCamTarget.z);
+      controls.update();
+    }
 
     // Depth line — stretch cylinder between surface and floor
     if (depthLineOn && depthLine3D && depthDot3D) {
@@ -395,13 +437,19 @@ async function onTileClick(tileBounds) {
   const stopAnimate = animate();
 
   current3D = {
-    scene, renderer, terrain, markerSystem, panel,
+    scene, renderer, camera, controls, terrain, markerSystem, panel,
     tileBounds,          // original tile (for follow mode)
     terrainBounds,       // actual rendered bounds (may be 3x3)
     stopAnimate, contextGroup, boatObj,
   };
 
   buildLayerPanel();
+
+  // Restore focus mode controls lock if active
+  if (focusMode) {
+    controls.enableRotate = false;
+    controls.enablePan = false;
+  }
 
   // Setup GPS in 3D
   gps3DTrailPoints = [];
@@ -555,6 +603,52 @@ btnFollow.addEventListener('click', () => {
     if (!current3D) {
       onTileClick(tile);
     }
+  } else {
+    // Turning off follow also turns off focus
+    if (focusMode) {
+      focusMode = false;
+      focusCamPos = null;
+      focusCamTarget = null;
+      btnFocus.classList.remove('active');
+      btnFocus.textContent = 'Focus';
+      if (current3D) {
+        current3D.controls.enableRotate = true;
+        current3D.controls.enablePan = true;
+      }
+    }
+  }
+});
+
+// ===== Focus mode (chase cam) =====
+const btnFocus = document.getElementById('btn-focus');
+
+btnFocus.addEventListener('click', () => {
+  focusMode = !focusMode;
+  btnFocus.classList.toggle('active', focusMode);
+  btnFocus.textContent = focusMode ? 'Focused' : 'Focus';
+
+  if (focusMode) {
+    // Enable follow mode as well
+    if (!followMode) {
+      followMode = true;
+      btnFollow.classList.add('active');
+      btnFollow.textContent = 'Following';
+      const pos = gps.getPosition();
+      const tile = getTileBoundsAt(pos.lat, pos.lon);
+      followCurrentTileKey = `${tile.minLat},${tile.minLon}`;
+      if (!current3D) onTileClick(tile);
+    }
+    if (current3D) {
+      current3D.controls.enableRotate = false;
+      current3D.controls.enablePan = false;
+    }
+  } else {
+    focusCamPos = null;
+    focusCamTarget = null;
+    if (current3D) {
+      current3D.controls.enableRotate = true;
+      current3D.controls.enablePan = true;
+    }
   }
 });
 
@@ -579,6 +673,9 @@ btnBack.addEventListener('click', () => {
   followMode = false;
   btnFollow.classList.remove('active');
   btnFollow.textContent = 'Follow';
+  focusMode = false;
+  btnFocus.classList.remove('active');
+  btnFocus.textContent = 'Focus';
   goBackToMap();
 });
 
