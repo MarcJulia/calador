@@ -4,6 +4,9 @@ import * as THREE from 'three';
 const TERRAIN_BASE = 200;  // 3D units for the largest horizontal dimension
 const SEGMENTS = 256;
 
+// ===== Data cache for prefetching =====
+const _cache = new Map(); // key -> { emodnet, terrarium, satellite, gebco }
+
 // ===== EMODnet WCS via local proxy — real depth values at ~115m =====
 // Proxied through /proxy/emodnet-wcs to bypass CORS.
 // Returns ASCII grid with actual depth in meters.
@@ -362,6 +365,36 @@ function lerpEdge(pos, idxA, idxB, yA, yB, level) {
 
 // ===== Main terrain creation =====
 
+function cacheKey(bounds) {
+  return `${bounds.minLat},${bounds.minLon},${bounds.maxLat},${bounds.maxLon}`;
+}
+
+/**
+ * Prefetch and cache parsed terrain data so createTerrain is near-instant.
+ */
+export async function prefetchTerrain(bounds) {
+  const key = cacheKey(bounds);
+  if (_cache.has(key)) return;
+
+  const noop = () => {};
+  const emodnetPromise = fetchEmodnetHeightmap(bounds, SEGMENTS, noop).catch(() => null);
+  const terrariumPromise = fetchTerrariumHeightmap(bounds, SEGMENTS, noop).catch(() => null);
+  const satPromise = loadImageWithTimeout(satelliteUrl(bounds, 512, 512), 10000).catch(() => null);
+  const gebcoPromise = loadImageWithTimeout(gebcoUrl(bounds, 512, 512), 8000).catch(() => null);
+
+  const [emodnet, terrarium, satellite, gebco] = await Promise.all([
+    emodnetPromise, terrariumPromise, satPromise, gebcoPromise,
+  ]);
+
+  _cache.set(key, { emodnet, terrarium, satellite, gebco });
+  // Only keep one prefetched tile
+  if (_cache.size > 2) {
+    const first = _cache.keys().next().value;
+    _cache.delete(first);
+  }
+  console.log('Prefetched terrain data for next tile');
+}
+
 export async function createTerrain(scene, bounds, setLoadingText) {
   const size = SEGMENTS + 1;
 
@@ -376,17 +409,24 @@ export async function createTerrain(scene, bounds, setLoadingText) {
   const terrainWidth = widthM * unitsPerMeter;
   const terrainDepth = depthM * unitsPerMeter;
 
-  // --- Fetch elevation data ---
+  // --- Fetch elevation data (use cache if available) ---
   let heightValues = null;
   let isMetric = false;
   let dataSource = 'procedural';
   let gebcoImage = null;
   let satelliteImage = null;
 
-  // 1. Fetch EMODnet (hi-res sea) + Terrarium (land elevation) in parallel
+  const cached = _cache.get(cacheKey(bounds));
+  if (cached) _cache.delete(cacheKey(bounds));
+
   let emodnetResult = null, terrariumData = null;
 
-  {
+  if (cached) {
+    emodnetResult = cached.emodnet;
+    terrariumData = cached.terrarium;
+    satelliteImage = cached.satellite;
+    gebcoImage = cached.gebco;
+  } else {
     const emodnetPromise = fetchEmodnetHeightmap(bounds, SEGMENTS, setLoadingText)
       .catch(err => { console.warn('EMODnet failed:', err.message); return null; });
     const terrariumPromise = fetchTerrariumHeightmap(bounds, SEGMENTS, setLoadingText)
@@ -440,11 +480,13 @@ export async function createTerrain(scene, bounds, setLoadingText) {
     heightValues = generateProceduralHeightmap(SEGMENTS, bounds);
   }
 
-  // --- Fetch textures ---
-  try {
-    setLoadingText('Fetching satellite imagery...');
-    satelliteImage = await loadImageWithTimeout(satelliteUrl(bounds, 512, 512), 10000);
-  } catch (_) {}
+  // --- Fetch textures (skip if already from cache) ---
+  if (!satelliteImage) {
+    try {
+      setLoadingText('Fetching satellite imagery...');
+      satelliteImage = await loadImageWithTimeout(satelliteUrl(bounds, 512, 512), 10000);
+    } catch (_) {}
+  }
 
   if (!gebcoImage) {
     try { gebcoImage = await loadImageWithTimeout(gebcoUrl(bounds, 512, 512), 8000); } catch (_) {}

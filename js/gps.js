@@ -39,6 +39,12 @@ export function createGPSSimulator() {
   let phase = 0;
   let phaseTime = 0;
 
+  // Route following
+  let route = [];           // array of {lat, lon} waypoints
+  let routeIdx = 0;         // current target waypoint index
+  let onRouteAdvance = null; // callback when a waypoint is reached
+  const ARRIVAL_THRESH = 0.00009; // ~10m
+
   // Pick fishing spots ~8-15km south/southwest of start
   const angle1 = (210 + Math.random() * 30) * Math.PI / 180;
   const dist1 = 0.08 + Math.random() * 0.04; // degrees (~9-13km)
@@ -64,9 +70,53 @@ export function createGPSSimulator() {
     }
   }
 
+  function tickRoute(dt) {
+    if (routeIdx >= route.length) {
+      // Route complete — clear and resume normal sim
+      route = [];
+      routeIdx = 0;
+      if (onRouteAdvance) onRouteAdvance(-1); // signal route done
+      return false; // fall through to normal tick
+    }
+
+    const wp = route[routeIdx];
+    const dlat = wp.lat - lat;
+    const dlon = (wp.lon - lon) * Math.cos(lat * Math.PI / 180);
+    const distDeg = Math.sqrt(dlat * dlat + dlon * dlon);
+
+    // Arrived at waypoint?
+    if (distDeg < ARRIVAL_THRESH) {
+      const reachedIdx = routeIdx;
+      routeIdx++;
+      if (onRouteAdvance) onRouteAdvance(reachedIdx);
+      return true;
+    }
+
+    // Transit toward waypoint at 8 knots
+    speed = 8;
+    heading = Math.atan2(dlon, dlat) * 180 / Math.PI;
+    heading += (Math.random() - 0.5) * 2; // slight wobble
+    const moveDeg = speed * KTS_TO_DEG_PER_SEC * dt;
+    lat += moveDeg * Math.cos(heading * Math.PI / 180);
+    lon += moveDeg * Math.sin(heading * Math.PI / 180) / Math.cos(lat * Math.PI / 180);
+
+    const pos = {
+      lat, lon, heading, speed,
+      phase: 'navigating',
+      simTimeMin: Math.floor(simTime / 60),
+    };
+    for (const fn of listeners) fn(pos);
+    return true;
+  }
+
   function tick() {
     const dt = (UPDATE_MS / 1000) * TIME_SCALE; // simulated seconds per tick
     simTime += dt;
+
+    // Route mode takes priority
+    if (route.length > 0 && routeIdx < route.length) {
+      if (tickRoute(dt)) return;
+    }
 
     const p = PHASES[phase];
     if (!p) {
@@ -144,5 +194,19 @@ export function createGPSSimulator() {
   function setTimeScale(s) { TIME_SCALE = s; }
   function getTimeScale() { return TIME_SCALE; }
 
-  return { start, stop, onPosition, removeListener, getPosition, setTimeScale, getTimeScale };
+  function setRoute(waypoints, onAdvance) {
+    route = waypoints.map(w => ({ lat: w.lat, lon: w.lon }));
+    routeIdx = 0;
+    onRouteAdvance = onAdvance || null;
+  }
+
+  function clearRoute() {
+    route = [];
+    routeIdx = 0;
+    onRouteAdvance = null;
+  }
+
+  function hasRoute() { return route.length > 0 && routeIdx < route.length; }
+
+  return { start, stop, onPosition, removeListener, getPosition, setTimeScale, getTimeScale, setRoute, clearRoute, hasRoute };
 }

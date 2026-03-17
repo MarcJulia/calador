@@ -17,10 +17,26 @@
       <span class="subtitle">Colonia de Sant Jordi — Day Trip Range</span>
       <div id="grid-size-selector"></div>
       <div id="map-toolbar-right">
+        <button id="btn-itinerary" title="Show navigation route">Route (0)</button>
+        <div id="marker-search">
+          <input type="text" id="search-input" placeholder="Search markers...">
+          <div id="search-results" class="hidden"></div>
+        </div>
       </div>
     </div>
     <div id="map-legend">
       <p>Click any tile to explore the sea floor in 3D</p>
+    </div>
+    <div id="itinerary-panel" class="hidden">
+      <div id="itinerary-header">
+        <h3>Navigation Route</h3>
+        <button id="itinerary-close">&times;</button>
+      </div>
+      <div id="itinerary-list"></div>
+      <div id="itinerary-actions">
+        <button id="btn-clear-route" class="danger">Clear</button>
+        <button id="btn-start-nav" class="primary">Navigate</button>
+      </div>
     </div>
   </div>
 
@@ -32,6 +48,7 @@
       <button id="btn-back">&#8592; Back to Map</button>
       <span id="tile-label"></span>
       <div id="toolbar-3d-right">
+        <span id="nav-status" class="hidden"></span>
         <span id="hover-coords">Hover over terrain</span>
         <button id="btn-wide" title="Show neighboring tiles">Wide</button>
         <button id="btn-follow" title="Follow the boat between tiles">Follow</button>
@@ -108,6 +125,9 @@
         </div>
         <div class="field-group">
           <h3>Properties</h3>
+          <label>Name
+            <input type="text" id="field-name" placeholder="Optional name">
+          </label>
           <label>Color
             <div id="color-picker">
               <span class="color-swatch" data-color="#ff4444" style="background:#ff4444"></span>

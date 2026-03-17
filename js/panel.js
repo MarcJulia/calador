@@ -12,6 +12,7 @@ export function createPanel(markerSystem) {
   const placementPicker = document.getElementById('placement-picker');
   const placementBtns = placementPicker.querySelectorAll('.placement-btn');
 
+  const fieldName = document.getElementById('field-name');
   const fieldLat = document.getElementById('field-lat');
   const fieldLon = document.getElementById('field-lon');
   const fieldDepth = document.getElementById('field-depth');
@@ -63,7 +64,8 @@ export function createPanel(markerSystem) {
     currentColor = data.color || '#40c0ff';
     currentPlacement = data.placement || 'bottom';
 
-    panelTitle.textContent = `Marker ${data.lat.toFixed(2)}°, ${data.lon.toFixed(2)}°`;
+    panelTitle.textContent = data.name || `Marker ${data.lat.toFixed(2)}°, ${data.lon.toFixed(2)}°`;
+    fieldName.value = data.name || '';
     fieldLat.value = data.lat;
     fieldLon.value = data.lon;
     fieldDepth.value = data.depth;
@@ -108,6 +110,7 @@ export function createPanel(markerSystem) {
 
   function collectData() {
     return {
+      name: fieldName.value.trim() || '',
       color: currentColor,
       placement: currentPlacement,
       substrate: fieldSubstrate.value,

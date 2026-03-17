@@ -214,9 +214,8 @@ export function createMarkerSystem(scene, camera, canvas, terrain, controls) {
     selectedId = null;
     multiSelected.clear();
     dataArray.forEach(data => {
-      let pos;
-      if (data.position) pos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
-      else pos = terrain.geoToPosition(data.lat, data.lon);
+      // Always recompute position from lat/lon against current terrain
+      const pos = terrain.geoToPosition(data.lat, data.lon);
       addMarker(pos, data);
     });
   }

@@ -57,6 +57,241 @@ body {
   margin-left: auto;
 }
 
+/* Marker search */
+#marker-search {
+  position: relative;
+}
+
+#search-input {
+  width: 220px;
+  padding: 5px 10px;
+  font-size: 12px;
+  background: rgba(20, 40, 70, 0.6);
+  border: 1px solid rgba(100, 160, 220, 0.3);
+  border-radius: 4px;
+  color: #e0e8f0;
+  margin-top: 0;
+}
+
+#search-input:focus {
+  border-color: #4a9ede;
+  outline: none;
+}
+
+#search-input::placeholder {
+  color: #5a7a98;
+}
+
+#search-results {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: rgba(12, 24, 44, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(100, 160, 220, 0.2);
+  border-radius: 0 0 6px 6px;
+  z-index: 1001;
+}
+
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(100, 160, 220, 0.08);
+}
+
+.search-result:hover {
+  background: rgba(40, 80, 130, 0.3);
+}
+
+.search-result-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.search-result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-result-title {
+  font-size: 12px;
+  color: #c0d8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-result-detail {
+  font-size: 10px;
+  color: #5a7a98;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-no-results {
+  padding: 12px;
+  font-size: 12px;
+  color: #5a7a98;
+  text-align: center;
+}
+
+.btn-nav {
+  padding: 3px 8px;
+  font-size: 10px;
+  flex-shrink: 0;
+  background: rgba(255, 204, 0, 0.15);
+  border-color: rgba(255, 204, 0, 0.4);
+  color: #ffcc00;
+}
+
+.btn-nav:hover {
+  background: rgba(255, 204, 0, 0.3);
+}
+
+.btn-nav:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Itinerary panel */
+#itinerary-panel {
+  position: absolute;
+  top: 56px;
+  right: 20px;
+  width: 300px;
+  max-height: calc(100vh - 120px);
+  background: rgba(12, 24, 44, 0.94);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 204, 0, 0.2);
+  border-radius: 8px;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#itinerary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 204, 0, 0.15);
+}
+
+#itinerary-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffcc00;
+}
+
+#itinerary-close {
+  background: none;
+  border: none;
+  color: #8aa8c8;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+#itinerary-list {
+  overflow-y: auto;
+  max-height: 300px;
+}
+
+.itinerary-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(100, 160, 220, 0.08);
+  cursor: grab;
+  transition: background 0.15s;
+}
+
+.itinerary-item:hover {
+  background: rgba(40, 80, 130, 0.25);
+}
+
+.itinerary-item.dragging {
+  opacity: 0.4;
+}
+
+.drag-handle {
+  color: #4a6a88;
+  font-size: 16px;
+  cursor: grab;
+  user-select: none;
+}
+
+.itinerary-color {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.itinerary-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.itinerary-name {
+  font-size: 12px;
+  color: #c0d8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itinerary-dist {
+  font-size: 10px;
+  color: #5a7a98;
+}
+
+.itinerary-remove {
+  background: none;
+  border: none;
+  color: #6a8aa8;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.itinerary-remove:hover {
+  color: #f08080;
+}
+
+#itinerary-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 204, 0, 0.15);
+}
+
+#itinerary-actions button {
+  flex: 1;
+}
+
+/* Nav status in 3D toolbar */
+#nav-status {
+  font-size: 12px;
+  color: #ffcc00;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 #map-legend {
   position: absolute;
   bottom: 24px;

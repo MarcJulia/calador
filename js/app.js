@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createScene, adjustCamera } from './scene.js';
-import { createTerrain, destroyTerrain, applyOverlay, removeOverlay } from './terrain.js';
+import { createTerrain, destroyTerrain, applyOverlay, removeOverlay, prefetchTerrain } from './terrain.js';
 import { createMarkerSystem } from './markers.js';
 import { createPanel } from './panel.js';
 import { saveToStorage, loadFromStorage } from './data.js';
@@ -31,9 +31,20 @@ let focusMode = false;      // chase camera behind the boat
 let focusCamPos = null;     // smoothed camera position
 let focusCamTarget = null;  // smoothed look-at target
 let focusCamDist = 50;      // zoom distance behind boat
+let focusCamOffset = null;  // {pos, target} offsets from vessel for tile transitions
 let depthLineOn = false;    // show vertical line to sea floor
 let depthLine3D = null;     // THREE.Line object
 let depthDot3D = null;      // dot at sea floor
+
+// ===== Tile preloading =====
+let preloadingKey = null;     // key of tile currently being prefetched
+
+// ===== Navigation / Itinerary =====
+let itinerary = [];             // ordered array of marker data objects
+let navLine2D = null;           // Leaflet polyline on 2D map
+let navLine3D = null;           // THREE.Line in 3D scene
+let navLabels3D = [];           // THREE sprites for distance labels
+let navMinimapLine = null;      // Leaflet polyline on minimap
 
 // ===== DOM refs =====
 const viewMap = document.getElementById('view-map');
@@ -50,12 +61,364 @@ const layerPanel = document.getElementById('layer-panel');
 const layerPanelBody = document.getElementById('layer-panel-body');
 const layerPanelClose = document.getElementById('layer-panel-close');
 
+// ===== Marker search =====
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+
+function searchMarkers(query) {
+  if (!query) { searchResults.classList.add('hidden'); return; }
+  const q = query.toLowerCase();
+
+  const matches = allMarkers.filter(m => {
+    const fields = [
+      m.name, m.notes, m.substrate, m.species?.join(' '),
+      m.color, m.date,
+      m.tags ? Object.entries(m.tags).map(([k, v]) => `${k} ${v}`).join(' ') : '',
+    ].filter(Boolean).join(' ').toLowerCase();
+    return fields.includes(q);
+  });
+
+  searchResults.innerHTML = '';
+
+  if (matches.length === 0) {
+    searchResults.innerHTML = '<div class="search-no-results">No markers found</div>';
+    searchResults.classList.remove('hidden');
+    return;
+  }
+
+  matches.slice(0, 20).forEach(m => {
+    const item = document.createElement('div');
+    item.className = 'search-result';
+
+    const title = m.name || `${m.lat.toFixed(4)}°N ${m.lon.toFixed(4)}°E`;
+    const detail = [m.substrate, m.species?.join(', '), m.notes].filter(Boolean).join(' · ');
+    item.innerHTML = `
+      <span class="search-result-color" style="background:${m.color || '#40c0ff'}"></span>
+      <div class="search-result-info">
+        <div class="search-result-title">${title} · ${m.depth}m</div>
+        <div class="search-result-detail">${detail || 'No details'}</div>
+      </div>`;
+
+    item.addEventListener('click', () => {
+      const tile = getTileBoundsAt(m.lat, m.lon);
+      searchResults.classList.add('hidden');
+      searchInput.value = '';
+      onTileClick(tile);
+    });
+
+    const navBtn = document.createElement('button');
+    navBtn.className = 'btn-nav';
+    navBtn.textContent = '+ Route';
+    navBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      addToItinerary(m);
+      navBtn.textContent = 'Added';
+      navBtn.disabled = true;
+    });
+    item.appendChild(navBtn);
+
+    searchResults.appendChild(item);
+  });
+
+  searchResults.classList.remove('hidden');
+}
+
+searchInput.addEventListener('input', () => searchMarkers(searchInput.value.trim()));
+searchInput.addEventListener('focus', () => { if (searchInput.value.trim()) searchMarkers(searchInput.value.trim()); });
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#marker-search')) searchResults.classList.add('hidden');
+});
+
+// ===== Haversine distance =====
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function fmtDist(km) {
+  return km < 1 ? `${(km * 1000).toFixed(0)}m` : `${km.toFixed(1)}km`;
+}
+
+// ===== Itinerary management =====
+const btnItinerary = document.getElementById('btn-itinerary');
+const itineraryPanel = document.getElementById('itinerary-panel');
+const itineraryList = document.getElementById('itinerary-list');
+const btnClearRoute = document.getElementById('btn-clear-route');
+const btnStartNav = document.getElementById('btn-start-nav');
+const itineraryClose = document.getElementById('itinerary-close');
+const navStatus = document.getElementById('nav-status');
+
+function addToItinerary(marker) {
+  // Don't add duplicates
+  if (itinerary.find(m => m.id === marker.id)) return;
+  itinerary.push({ ...marker });
+  updateItineraryUI();
+  drawRoute2D();
+}
+
+function removeFromItinerary(index) {
+  itinerary.splice(index, 1);
+  updateItineraryUI();
+  drawRoute2D();
+  if (current3D) drawRoute3D();
+  if (itinerary.length === 0) {
+    navStatus.classList.add('hidden');
+  }
+}
+
+function updateItineraryUI() {
+  btnItinerary.textContent = `Route (${itinerary.length})`;
+  btnItinerary.classList.toggle('active', itinerary.length > 0);
+  renderItineraryList();
+}
+
+function renderItineraryList() {
+  itineraryList.innerHTML = '';
+  const pos = gps.getPosition();
+  let prevLat = pos.lat, prevLon = pos.lon;
+
+  itinerary.forEach((m, i) => {
+    const dist = haversineKm(prevLat, prevLon, m.lat, m.lon);
+    const item = document.createElement('div');
+    item.className = 'itinerary-item';
+    item.draggable = true;
+    item.dataset.index = i;
+
+    item.innerHTML = `
+      <span class="drag-handle">&#8801;</span>
+      <span class="itinerary-color" style="background:${m.color || '#40c0ff'}"></span>
+      <div class="itinerary-info">
+        <div class="itinerary-name">${m.name || `${m.lat.toFixed(3)}°N ${m.lon.toFixed(3)}°E`}</div>
+        <div class="itinerary-dist">${fmtDist(dist)} · ${m.depth}m deep</div>
+      </div>
+      <button class="itinerary-remove" data-index="${i}">&times;</button>`;
+
+    // Drag reorder
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', i);
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => item.classList.remove('dragging'));
+    item.addEventListener('dragover', (e) => e.preventDefault());
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData('text/plain'));
+      const to = i;
+      if (from === to) return;
+      const [moved] = itinerary.splice(from, 1);
+      itinerary.splice(to, 0, moved);
+      updateItineraryUI();
+      drawRoute2D();
+      if (current3D) drawRoute3D();
+    });
+
+    item.querySelector('.itinerary-remove').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeFromItinerary(i);
+    });
+
+    itineraryList.appendChild(item);
+    prevLat = m.lat;
+    prevLon = m.lon;
+  });
+}
+
+btnItinerary.addEventListener('click', () => {
+  itineraryPanel.classList.toggle('hidden');
+});
+
+itineraryClose.addEventListener('click', () => {
+  itineraryPanel.classList.add('hidden');
+});
+
+btnClearRoute.addEventListener('click', () => {
+  itinerary = [];
+  gps.clearRoute();
+  updateItineraryUI();
+  drawRoute2D();
+  if (current3D) drawRoute3D();
+  navStatus.classList.add('hidden');
+});
+
+btnStartNav.addEventListener('click', () => {
+  if (itinerary.length === 0) return;
+  itineraryPanel.classList.add('hidden');
+
+  // Activate focus + follow (only click if not already focused)
+  if (!focusMode) {
+    btnFocus.click();
+  } else if (!current3D) {
+    // Already focused but not in 3D — enter 3D at vessel tile
+    const pos = gps.getPosition();
+    const tile = getTileBoundsAt(pos.lat, pos.lon);
+    onTileClick(tile);
+  }
+  navStatus.classList.remove('hidden');
+
+  // Bump speed so navigation is visible
+  if (gps.getTimeScale() < 30) {
+    speedIdx = SPEED_STEPS.indexOf(30);
+    gps.setTimeScale(30);
+    btnSpeed.textContent = '30x';
+    btnSpeed.classList.add('active');
+  }
+
+  // Send route to GPS simulator
+  gps.setRoute(itinerary, (reachedIdx) => {
+    if (reachedIdx === -1) {
+      // Route complete
+      itinerary = [];
+      updateItineraryUI();
+      drawRoute2D();
+      if (current3D) drawRoute3D();
+      navStatus.textContent = 'Route complete';
+      setTimeout(() => navStatus.classList.add('hidden'), 3000);
+      return;
+    }
+    // Remove reached waypoint from itinerary
+    itinerary.shift();
+    updateItineraryUI();
+    drawRoute2D();
+    if (current3D) drawRoute3D();
+  });
+});
+
+// ===== Route drawing — 2D map =====
+function drawRoute2D() {
+  if (navLine2D && leafletMap) { leafletMap.removeLayer(navLine2D); navLine2D = null; }
+  if (!leafletMap || itinerary.length === 0) return;
+
+  const pos = gps.getPosition();
+  const pts = [[pos.lat, pos.lon], ...itinerary.map(m => [m.lat, m.lon])];
+  navLine2D = L.polyline(pts, { color: '#ffcc00', weight: 2, dashArray: '8,6', opacity: 0.8 }).addTo(leafletMap);
+}
+
+function updateRoute2D(pos) {
+  if (!navLine2D || itinerary.length === 0) return;
+  const pts = [[pos.lat, pos.lon], ...itinerary.map(m => [m.lat, m.lon])];
+  navLine2D.setLatLngs(pts);
+}
+
+// ===== Route drawing — 3D scene =====
+function makeDistSprite(text) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = 'rgba(10,22,40,0.8)';
+  ctx.roundRect(0, 0, 256, 64, 8);
+  ctx.fill();
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = 'bold 32px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 32);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(12, 3, 1);
+  return sprite;
+}
+
+function geoTo3DRoute(terrain, lat, lon) {
+  const v = terrain.geoToPosition(lat, lon);
+  return new THREE.Vector3(v.x, Math.max(v.y, 0) + 3, v.z);
+}
+
+function drawRoute3D() {
+  if (!current3D) return;
+  const { scene, terrain, terrainBounds } = current3D;
+
+  // Cleanup previous
+  if (navLine3D) { scene.remove(navLine3D); navLine3D = null; }
+  navLabels3D.forEach(s => scene.remove(s));
+  navLabels3D = [];
+
+  if (itinerary.length === 0) return;
+
+  const pos = gps.getPosition();
+  const allPts = [{ lat: pos.lat, lon: pos.lon }, ...itinerary];
+  const points3d = allPts.map(p => geoTo3DRoute(terrain, p.lat, p.lon));
+
+  // Pre-allocate buffer with extra room so updateRoute3D can modify vertex 0
+  const maxPts = points3d.length;
+  const posArr = new Float32Array(maxPts * 3);
+  points3d.forEach((v, i) => { posArr[i * 3] = v.x; posArr[i * 3 + 1] = v.y; posArr[i * 3 + 2] = v.z; });
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
+  const mat = new THREE.LineBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.9 });
+  navLine3D = new THREE.Line(geo, mat);
+  scene.add(navLine3D);
+
+  // Distance labels at midpoint of each segment
+  for (let i = 0; i < points3d.length - 1; i++) {
+    const a = allPts[i], b = allPts[i + 1];
+    const dist = haversineKm(a.lat, a.lon, b.lat, b.lon);
+    const mid = new THREE.Vector3().lerpVectors(points3d[i], points3d[i + 1], 0.5);
+    mid.y += 5;
+    const sprite = makeDistSprite(fmtDist(dist));
+    sprite.position.copy(mid);
+    scene.add(sprite);
+    navLabels3D.push(sprite);
+  }
+}
+
+function updateRoute3D(pos) {
+  if (!current3D || !navLine3D || itinerary.length === 0) return;
+  const { terrain } = current3D;
+
+  // Update first point (vessel position)
+  const v = geoTo3DRoute(terrain, pos.lat, pos.lon);
+  const positions = navLine3D.geometry.attributes.position.array;
+  positions[0] = v.x;
+  positions[1] = v.y;
+  positions[2] = v.z;
+  navLine3D.geometry.attributes.position.needsUpdate = true;
+
+  // Update first distance label
+  if (navLabels3D.length > 0) {
+    const wp = itinerary[0];
+    const dist = haversineKm(pos.lat, pos.lon, wp.lat, wp.lon);
+    const wpV = geoTo3DRoute(terrain, wp.lat, wp.lon);
+    navLabels3D[0].position.set(
+      (v.x + wpV.x) / 2,
+      (v.y + wpV.y) / 2 + 5,
+      (v.z + wpV.z) / 2
+    );
+    // Redraw label text
+    const c = navLabels3D[0].material.map.image;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 256, 64);
+    ctx.fillStyle = 'rgba(10,22,40,0.8)';
+    ctx.roundRect(0, 0, 256, 64, 8);
+    ctx.fill();
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 32px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(fmtDist(dist), 128, 32);
+    navLabels3D[0].material.map.needsUpdate = true;
+  }
+}
+
+function updateNavStatus(pos) {
+  if (itinerary.length === 0) { navStatus.classList.add('hidden'); return; }
+  const dist = haversineKm(pos.lat, pos.lon, itinerary[0].lat, itinerary[0].lon);
+  const name = itinerary[0].name || 'WP1';
+  navStatus.textContent = `Next: ${name} · ${fmtDist(dist)}`;
+}
+
 // ===== Init 2D Map =====
 function initMap() {
   if (leafletMap) { leafletMap.remove(); leafletMap = null; }
   leafletMap = createMap('map', onTileClick, allMarkers);
   createGridSizeSelector(() => initMap());
   setupGPS2D();
+  drawRoute2D();
 }
 
 // ===== GPS on 2D map =====
@@ -171,7 +534,7 @@ function updateGPS3D(pos) {
         z: pos3d.z + fwdZ * lookAhead,
       };
 
-      const smooth = 0.04; // lower = smoother
+      const smooth = 0.015; // lower = smoother
       if (!focusCamPos) {
         focusCamPos = { ...desiredPos };
         focusCamTarget = { ...desiredTarget };
@@ -187,6 +550,16 @@ function updateGPS3D(pos) {
       camera.position.set(focusCamPos.x, focusCamPos.y, focusCamPos.z);
       controls.target.set(focusCamTarget.x, focusCamTarget.y, focusCamTarget.z);
       controls.update();
+
+      // Save offset from vessel for seamless tile transitions
+      focusCamOffset = {
+        posX: focusCamPos.x - pos3d.x,
+        posY: focusCamPos.y - surfaceY,
+        posZ: focusCamPos.z - pos3d.z,
+        tgtX: focusCamTarget.x - pos3d.x,
+        tgtY: focusCamTarget.y - surfaceY,
+        tgtZ: focusCamTarget.z - pos3d.z,
+      };
     }
 
     // Depth line — stretch cylinder between surface and floor
@@ -274,18 +647,28 @@ function setupMinimap(tileBounds) {
     iconAnchor: [5, 5],
   });
   minimapBoat = L.marker([0, 0], { icon: boatIcon }).addTo(minimap);
+
+  // Draw navigation route on minimap
+  if (itinerary.length > 0) {
+    const pos = gps.getPosition();
+    const pts = [[pos.lat, pos.lon], ...itinerary.map(m => [m.lat, m.lon])];
+    navMinimapLine = L.polyline(pts, { color: '#ffcc00', weight: 2, dashArray: '6,4', opacity: 0.8 }).addTo(minimap);
+  }
 }
 
 function updateMinimap(pos) {
   if (!minimapBoat || !minimap) return;
   minimapBoat.setLatLng([pos.lat, pos.lon]);
   if (minimapTrail) minimapTrail.setLatLngs(gpsTrailPoints);
+  if (navMinimapLine && itinerary.length > 0) {
+    navMinimapLine.setLatLngs([[pos.lat, pos.lon], ...itinerary.map(m => [m.lat, m.lon])]);
+  }
 }
 
 let minimapTrail = null;
 
 function destroyMinimap() {
-  if (minimap) { minimap.remove(); minimap = null; minimapBoat = null; minimapTrail = null; }
+  if (minimap) { minimap.remove(); minimap = null; minimapBoat = null; minimapTrail = null; navMinimapLine = null; }
 }
 
 // ===== Layer panel (overlays only) =====
@@ -369,42 +752,89 @@ function updateDepthLegend(terrain) {
   }
 }
 
+// ===== Tile preloading =====
+function getTileBoundsExpanded(tileBounds) {
+  if (!wideMode) return tileBounds;
+  const latSpan = tileBounds.maxLat - tileBounds.minLat;
+  const lonSpan = tileBounds.maxLon - tileBounds.minLon;
+  return {
+    minLat: tileBounds.minLat - latSpan,
+    maxLat: tileBounds.maxLat + latSpan,
+    minLon: tileBounds.minLon - lonSpan,
+    maxLon: tileBounds.maxLon + lonSpan,
+    label: tileBounds.label,
+  };
+}
+
+function tileKey(tb) { return `${tb.minLat},${tb.minLon}`; }
+
+function checkPreload(pos) {
+  if (!followMode || !current3D) return;
+  const tb = current3D.tileBounds;
+  const latSpan = tb.maxLat - tb.minLat;
+  const lonSpan = tb.maxLon - tb.minLon;
+
+  // How close to the edge (>0.5 = past halfway to edge)
+  const fracLat = Math.max(
+    1 - (pos.lat - tb.minLat) / latSpan * 2,
+    1 - (tb.maxLat - pos.lat) / latSpan * 2
+  );
+  const fracLon = Math.max(
+    1 - (pos.lon - tb.minLon) / lonSpan * 2,
+    1 - (tb.maxLon - pos.lon) / lonSpan * 2
+  );
+
+  if (fracLat > 0.5 || fracLon > 0.5) {
+    const headingRad = pos.heading * Math.PI / 180;
+    const lookLat = pos.lat + Math.cos(headingRad) * latSpan * 0.6;
+    const lookLon = pos.lon + Math.sin(headingRad) / Math.cos(pos.lat * Math.PI / 180) * lonSpan * 0.6;
+    const nextTile = getTileBoundsAt(lookLat, lookLon);
+    const nextKey = tileKey(nextTile);
+    if (nextKey !== followCurrentTileKey && nextKey !== preloadingKey) {
+      preloadingKey = nextKey;
+      const bounds = getTileBoundsExpanded(nextTile);
+      prefetchTerrain(bounds).then(() => { preloadingKey = null; });
+    }
+  }
+}
+
 // ===== Tile click -> enter 3D =====
 async function onTileClick(tileBounds) {
   viewMap.classList.add('hidden');
   view3D.classList.remove('hidden');
 
-  loading.classList.remove('hidden');
-  loading.classList.remove('fade-out');
-  loadingText.textContent = 'Loading terrain data...';
-  tileLabel.textContent = tileBounds.label;
-  followCurrentTileKey = `${tileBounds.minLat},${tileBounds.minLon}`;
+  const seamless = focusMode && current3D;
 
-  cleanup3D();
+  if (!seamless) {
+    loading.classList.remove('hidden');
+    loading.classList.remove('fade-out');
+    loadingText.textContent = 'Loading terrain data...';
+  }
+
+  tileLabel.textContent = tileBounds.label;
+  followCurrentTileKey = tileKey(tileBounds);
   activeOverlays.clear();
 
-  // In wide mode, expand bounds to 3x3 grid around the clicked tile
-  let terrainBounds = tileBounds;
-  if (wideMode) {
-    const latSpan = tileBounds.maxLat - tileBounds.minLat;
-    const lonSpan = tileBounds.maxLon - tileBounds.minLon;
-    terrainBounds = {
-      minLat: tileBounds.minLat - latSpan,
-      maxLat: tileBounds.maxLat + latSpan,
-      minLon: tileBounds.minLon - lonSpan,
-      maxLon: tileBounds.maxLon + lonSpan,
-      label: tileBounds.label,
-    };
+  const terrainBounds = getTileBoundsExpanded(tileBounds);
+
+  // In seamless mode, prefetch data while old scene keeps rendering
+  if (seamless) {
+    await prefetchTerrain(terrainBounds);
   }
+
+  // Now swap — if data was prefetched, createTerrain hits cache and is near-instant
+  if (current3D) { saveCurrentTileMarkers(); }
+  cleanup3D();
+  destroyMinimap();
 
   const { renderer, scene, camera, controls, animate } = createScene(canvas);
 
   const terrain = await createTerrain(scene, terrainBounds, (text) => {
-    loadingText.textContent = text;
+    if (!seamless) loadingText.textContent = text;
   });
 
-  // Adjust camera to frame the terrain
-  adjustCamera(camera, controls, terrain);
+  // Adjust camera to frame the terrain (skip in focus mode — GPS tick handles it)
+  if (!focusMode) adjustCamera(camera, controls, terrain);
 
   updateDepthLegend(terrain);
   document.getElementById('land-warning').classList.add('hidden');
@@ -449,6 +879,41 @@ async function onTileClick(tileBounds) {
   if (focusMode) {
     controls.enableRotate = false;
     controls.enablePan = false;
+    // Reposition camera relative to vessel using saved offset
+    const gpsPos = gps.getPosition();
+    const pos3d = terrain.geoToPosition(gpsPos.lat, gpsPos.lon);
+    const surfaceY = Math.max(pos3d.y, 0) + 2;
+    if (focusCamOffset) {
+      // Apply the same relative offset to the new tile coordinates
+      focusCamPos = {
+        x: pos3d.x + focusCamOffset.posX,
+        y: surfaceY + focusCamOffset.posY,
+        z: pos3d.z + focusCamOffset.posZ,
+      };
+      focusCamTarget = {
+        x: pos3d.x + focusCamOffset.tgtX,
+        y: surfaceY + focusCamOffset.tgtY,
+        z: pos3d.z + focusCamOffset.tgtZ,
+      };
+    } else {
+      // First time — compute from heading
+      const headingRad = gpsPos.heading * Math.PI / 180;
+      const fwdX = Math.sin(headingRad);
+      const fwdZ = -Math.cos(headingRad);
+      focusCamPos = {
+        x: pos3d.x - fwdX * focusCamDist,
+        y: surfaceY + focusCamDist * 0.5,
+        z: pos3d.z - fwdZ * focusCamDist,
+      };
+      focusCamTarget = {
+        x: pos3d.x + fwdX * focusCamDist * 0.6,
+        y: surfaceY,
+        z: pos3d.z + fwdZ * focusCamDist * 0.6,
+      };
+    }
+    camera.position.set(focusCamPos.x, focusCamPos.y, focusCamPos.z);
+    controls.target.set(focusCamTarget.x, focusCamTarget.y, focusCamTarget.z);
+    controls.update();
   }
 
   // Setup GPS in 3D
@@ -457,6 +922,9 @@ async function onTileClick(tileBounds) {
 
   // Setup satellite minimap showing the rendered area
   setupMinimap(terrainBounds);
+
+  // Draw navigation route in 3D
+  drawRoute3D();
 }
 
 // ===== Back to map =====
@@ -505,6 +973,9 @@ function cleanup3D() {
   if (gps3DTrail) { scene.remove(gps3DTrail); gps3DTrail = null; }
   if (depthLine3D) { scene.remove(depthLine3D); depthLine3D = null; }
   if (depthDot3D) { scene.remove(depthDot3D); depthDot3D = null; }
+  if (navLine3D) { scene.remove(navLine3D); navLine3D = null; }
+  navLabels3D.forEach(s => scene.remove(s));
+  navLabels3D = [];
 
   renderer.dispose();
   current3D = null;
@@ -609,6 +1080,7 @@ btnFollow.addEventListener('click', () => {
       focusMode = false;
       focusCamPos = null;
       focusCamTarget = null;
+      focusCamOffset = null;
       btnFocus.classList.remove('active');
       btnFocus.textContent = 'Focus';
       if (current3D) {
@@ -651,6 +1123,7 @@ btnFocus.addEventListener('click', () => {
   } else {
     focusCamPos = null;
     focusCamTarget = null;
+    focusCamOffset = null;
     if (current3D) {
       current3D.controls.enableRotate = true;
       current3D.controls.enablePan = true;
@@ -711,6 +1184,10 @@ gps.onPosition((pos) => {
   updateGPS2D(pos);
   updateGPS3D(pos);
   updateMinimap(pos);
+  updateRoute2D(pos);
+  updateRoute3D(pos);
+  updateNavStatus(pos);
+  checkPreload(pos);
   checkFollowTileChange(pos);
 });
 gps.start();
