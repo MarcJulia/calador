@@ -30,6 +30,7 @@ let followCurrentTileKey = null; // track which tile we're in during follow
 let focusMode = false;      // chase camera behind the boat
 let focusCamPos = null;     // smoothed camera position
 let focusCamTarget = null;  // smoothed look-at target
+let focusCamDist = 50;      // zoom distance behind boat
 let depthLineOn = false;    // show vertical line to sea floor
 let depthLine3D = null;     // THREE.Line object
 let depthDot3D = null;      // dot at sea floor
@@ -156,14 +157,13 @@ function updateGPS3D(pos) {
       const headingRad = pos.heading * Math.PI / 180;
       const fwdX = Math.sin(headingRad);
       const fwdZ = -Math.cos(headingRad);
-      const camDist = 50;
-      const camHeight = 25;
-      const lookAhead = 30;
+      const camHeight = focusCamDist * 0.5;
+      const lookAhead = focusCamDist * 0.6;
 
       const desiredPos = {
-        x: pos3d.x - fwdX * camDist,
+        x: pos3d.x - fwdX * focusCamDist,
         y: surfaceY + camHeight,
-        z: pos3d.z - fwdZ * camDist,
+        z: pos3d.z - fwdZ * focusCamDist,
       };
       const desiredTarget = {
         x: pos3d.x + fwdX * lookAhead,
@@ -621,6 +621,12 @@ btnFollow.addEventListener('click', () => {
 
 // ===== Focus mode (chase cam) =====
 const btnFocus = document.getElementById('btn-focus');
+
+canvas.addEventListener('wheel', (e) => {
+  if (!focusMode) return;
+  e.preventDefault();
+  focusCamDist = Math.max(15, Math.min(300, focusCamDist + e.deltaY * 0.1));
+}, { passive: false });
 
 btnFocus.addEventListener('click', () => {
   focusMode = !focusMode;
