@@ -9,6 +9,7 @@ import { createBoat } from './boat.js';
 import { addContext } from './context.js';
 import { OVERLAY_GROUPS, getOverlayById } from './layers.js';
 import { createGPSSimulator } from './gps.js';
+import { initWeather } from './weather.js';
 
 // ===== State =====
 let allMarkers = loadFromStorage();
@@ -419,6 +420,7 @@ function initMap() {
   createGridSizeSelector(() => initMap());
   setupGPS2D();
   drawRoute2D();
+  initWeather(leafletMap);
 }
 
 // ===== GPS on 2D map =====
