@@ -158,6 +158,14 @@ function addToItinerary(marker) {
   itinerary.push({ ...marker });
   updateItineraryUI();
   drawRoute2D();
+  if (current3D) drawRoute3D();
+  if (gps.hasRoute()) {
+    // Already navigating — append to the live route
+    gps.setRoute(itinerary, routeAdvanceCallback);
+  } else {
+    // Not navigating yet — start immediately
+    startNavigation();
+  }
 }
 
 function removeFromItinerary(index) {
@@ -244,7 +252,25 @@ btnClearRoute.addEventListener('click', () => {
   navStatus.classList.add('hidden');
 });
 
-btnStartNav.addEventListener('click', () => {
+function routeAdvanceCallback(reachedIdx) {
+  if (reachedIdx === -1) {
+    // Route complete
+    itinerary = [];
+    updateItineraryUI();
+    drawRoute2D();
+    if (current3D) drawRoute3D();
+    navStatus.textContent = 'Route complete';
+    setTimeout(() => navStatus.classList.add('hidden'), 3000);
+    return;
+  }
+  // Remove reached waypoint from itinerary
+  itinerary.shift();
+  updateItineraryUI();
+  drawRoute2D();
+  if (current3D) drawRoute3D();
+}
+
+function startNavigation() {
   if (itinerary.length === 0) return;
   itineraryPanel.classList.add('hidden');
 
@@ -268,24 +294,10 @@ btnStartNav.addEventListener('click', () => {
   }
 
   // Send route to GPS simulator
-  gps.setRoute(itinerary, (reachedIdx) => {
-    if (reachedIdx === -1) {
-      // Route complete
-      itinerary = [];
-      updateItineraryUI();
-      drawRoute2D();
-      if (current3D) drawRoute3D();
-      navStatus.textContent = 'Route complete';
-      setTimeout(() => navStatus.classList.add('hidden'), 3000);
-      return;
-    }
-    // Remove reached waypoint from itinerary
-    itinerary.shift();
-    updateItineraryUI();
-    drawRoute2D();
-    if (current3D) drawRoute3D();
-  });
-});
+  gps.setRoute(itinerary, routeAdvanceCallback);
+}
+
+btnStartNav.addEventListener('click', () => startNavigation());
 
 // ===== Route drawing — 2D map =====
 function drawRoute2D() {
@@ -416,7 +428,7 @@ function updateNavStatus(pos) {
 // ===== Init 2D Map =====
 function initMap() {
   if (leafletMap) { leafletMap.remove(); leafletMap = null; }
-  leafletMap = createMap('map', onTileClick, allMarkers);
+  leafletMap = createMap('map', onTileClick, allMarkers, (m) => addToItinerary(m));
   createGridSizeSelector(() => initMap());
   setupGPS2D();
   drawRoute2D();
@@ -427,15 +439,18 @@ function initMap() {
 function setupGPS2D() {
   if (!leafletMap) return;
 
+  const boatSvg = `<svg class="gps-boat-svg" viewBox="0 0 24 32" width="24" height="32">
+    <path d="M12 2 L18 22 L12 28 L6 22 Z" fill="#ff2200" stroke="#fff" stroke-width="1.5"/>
+  </svg>`;
   const boatIcon = L.divIcon({
     className: 'gps-boat-icon',
-    html: '<div class="gps-boat-dot"></div>',
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
+    html: boatSvg,
+    iconSize: [24, 32],
+    iconAnchor: [12, 16],
   });
 
   gpsMapMarker = L.marker([0, 0], { icon: boatIcon, zIndexOffset: 1000 }).addTo(leafletMap);
-  gpsMapMarker.bindTooltip('', { permanent: true, direction: 'top', className: 'gps-tooltip', offset: [0, -12] });
+  gpsMapMarker.bindTooltip('', { permanent: true, direction: 'top', className: 'gps-tooltip', offset: [0, -18] });
 
   gpsTrailPoints = [];
   gpsMapTrail = L.polyline([], {
@@ -446,6 +461,8 @@ function setupGPS2D() {
 function updateGPS2D(pos) {
   if (!gpsMapMarker || !leafletMap) return;
   gpsMapMarker.setLatLng([pos.lat, pos.lon]);
+  const svg = gpsMapMarker.getElement()?.querySelector('.gps-boat-svg');
+  if (svg) svg.style.transform = `rotate(${pos.heading}deg)`;
   gpsMapMarker.setTooltipContent(
     `<b>${pos.speed.toFixed(1)} kts</b> · ${pos.phase}<br>${pos.lat.toFixed(4)}°N ${pos.lon.toFixed(4)}°E`
   );
@@ -642,13 +659,16 @@ function setupMinimap(tileBounds) {
   }).addTo(minimap);
 
   // GPS boat marker
-  const boatIcon = L.divIcon({
+  const miniBoatSvg = `<svg class="gps-boat-svg" viewBox="0 0 24 32" width="16" height="20">
+    <path d="M12 2 L18 22 L12 28 L6 22 Z" fill="#ff2200" stroke="#fff" stroke-width="1.5"/>
+  </svg>`;
+  const miniBoatIcon = L.divIcon({
     className: 'gps-boat-icon',
-    html: '<div class="gps-boat-dot"></div>',
-    iconSize: [10, 10],
-    iconAnchor: [5, 5],
+    html: miniBoatSvg,
+    iconSize: [16, 20],
+    iconAnchor: [8, 10],
   });
-  minimapBoat = L.marker([0, 0], { icon: boatIcon }).addTo(minimap);
+  minimapBoat = L.marker([0, 0], { icon: miniBoatIcon }).addTo(minimap);
 
   // Draw navigation route on minimap
   if (itinerary.length > 0) {
@@ -661,6 +681,8 @@ function setupMinimap(tileBounds) {
 function updateMinimap(pos) {
   if (!minimapBoat || !minimap) return;
   minimapBoat.setLatLng([pos.lat, pos.lon]);
+  const svg = minimapBoat.getElement()?.querySelector('.gps-boat-svg');
+  if (svg) svg.style.transform = `rotate(${pos.heading}deg)`;
   if (minimapTrail) minimapTrail.setLatLngs(gpsTrailPoints);
   if (navMinimapLine && itinerary.length > 0) {
     navMinimapLine.setLatLngs([[pos.lat, pos.lon], ...itinerary.map(m => [m.lat, m.lon])]);
@@ -857,6 +879,7 @@ async function onTileClick(tileBounds) {
 
   markerSystem.onMarkerSelect = (data) => panel.show(data);
   markerSystem.onMarkerDeselect = () => panel.hide();
+  panel.onNavigate = (data) => addToItinerary(data);
   markerSystem.onMarkerChange = () => saveCurrentTileMarkers();
   markerSystem.onMultiSelect = (ids) => { editCount.textContent = `${ids.length} selected`; };
   markerSystem.onHoverUpdate = (geo) => {

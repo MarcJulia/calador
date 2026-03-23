@@ -49,7 +49,7 @@ export function getTileBoundsAt(lat, lon) {
   };
 }
 
-export function createMap(container, onTileClick, markerData) {
+export function createMap(container, onTileClick, markerData, onMarkerNavigate) {
   const tileSizeM = getStoredGridSize();
 
   // Grid cell size in degrees
@@ -95,13 +95,25 @@ export function createMap(container, onTileClick, markerData) {
   const markerDotsLayer = L.layerGroup().addTo(map);
   markerData.forEach(m => {
     const color = m.color || '#40c0ff';
-    L.circleMarker([m.lat, m.lon], {
+    const cm = L.circleMarker([m.lat, m.lon], {
       radius: 5, color: '#fff', fillColor: color,
       fillOpacity: 0.9, weight: 1.5,
-    }).addTo(markerDotsLayer).bindTooltip(
+    }).addTo(markerDotsLayer);
+    cm.bindTooltip(
       `${m.substrate || 'Marker'}<br>${m.depth?.toFixed(1) || '?'}m`,
       { className: 'tile-tooltip' }
     );
+    const popupContent = document.createElement('div');
+    popupContent.className = 'marker-popup';
+    popupContent.innerHTML = `
+      <strong>${m.name || m.substrate || 'Marker'}</strong><br>
+      ${m.depth?.toFixed(1) || '?'}m deep<br>
+      <button class="marker-nav-btn">Navigate</button>`;
+    popupContent.querySelector('.marker-nav-btn').addEventListener('click', () => {
+      if (onMarkerNavigate) onMarkerNavigate(m);
+      map.closePopup();
+    });
+    cm.bindPopup(popupContent, { className: 'marker-popup-container' });
   });
 
   // --- Single hover rectangle that follows the mouse ---

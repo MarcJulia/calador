@@ -4,6 +4,7 @@ export function createPanel(markerSystem) {
   const btnClose = document.getElementById('panel-close');
   const btnSave = document.getElementById('btn-save');
   const btnDelete = document.getElementById('btn-delete');
+  const btnNavigate = document.getElementById('btn-navigate');
   const btnAddTag = document.getElementById('btn-add-tag');
   const tagsContainer = document.getElementById('tags-container');
   const tagKeyInput = document.getElementById('tag-key');
@@ -26,6 +27,8 @@ export function createPanel(markerSystem) {
   let currentTags = {};
   let currentColor = '#40c0ff';
   let currentPlacement = 'bottom';
+  let currentData = null;
+  let onNavigate = null;
 
   // Placement toggle
   placementBtns.forEach(btn => {
@@ -60,6 +63,7 @@ export function createPanel(markerSystem) {
 
   function show(data) {
     currentId = data.id;
+    currentData = data;
     currentTags = { ...(data.tags || {}) };
     currentColor = data.color || '#40c0ff';
     currentPlacement = data.placement || 'bottom';
@@ -138,6 +142,13 @@ export function createPanel(markerSystem) {
     if (confirm('Delete this marker?')) { markerSystem.removeMarker(currentId); hide(); }
   });
 
+  btnNavigate.addEventListener('click', () => {
+    if (!currentData || !onNavigate) return;
+    onNavigate(currentData);
+    btnNavigate.textContent = 'Added!';
+    setTimeout(() => { btnNavigate.textContent = 'Navigate'; }, 1000);
+  });
+
   btnAddTag.addEventListener('click', () => {
     const key = tagKeyInput.value.trim();
     const value = tagValueInput.value.trim();
@@ -147,7 +158,10 @@ export function createPanel(markerSystem) {
   tagKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') tagValueInput.focus(); });
   tagValueInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') btnAddTag.click(); });
 
-  return { show, hide };
+  return {
+    show, hide,
+    set onNavigate(fn) { onNavigate = fn; },
+  };
 }
 
 export function createMarkerList(markerSystem) {
