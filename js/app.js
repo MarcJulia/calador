@@ -152,7 +152,7 @@ const btnStartNav = document.getElementById('btn-start-nav');
 const itineraryClose = document.getElementById('itinerary-close');
 const navStatus = document.getElementById('nav-status');
 
-function addToItinerary(marker) {
+function addToItinerary(marker, { enterFocus = false } = {}) {
   // Don't add duplicates
   if (itinerary.find(m => m.id === marker.id)) return;
   itinerary.push({ ...marker });
@@ -164,7 +164,7 @@ function addToItinerary(marker) {
     gps.setRoute(itinerary, routeAdvanceCallback);
   } else {
     // Not navigating yet — start immediately
-    startNavigation();
+    startNavigation({ enterFocus });
   }
 }
 
@@ -270,18 +270,20 @@ function routeAdvanceCallback(reachedIdx) {
   if (current3D) drawRoute3D();
 }
 
-function startNavigation() {
+function startNavigation({ enterFocus = true } = {}) {
   if (itinerary.length === 0) return;
   itineraryPanel.classList.add('hidden');
 
-  // Activate focus + follow (only click if not already focused)
-  if (!focusMode) {
-    btnFocus.click();
-  } else if (!current3D) {
-    // Already focused but not in 3D — enter 3D at vessel tile
-    const pos = gps.getPosition();
-    const tile = getTileBoundsAt(pos.lat, pos.lon);
-    onTileClick(tile);
+  if (enterFocus) {
+    // Activate focus + follow (only click if not already focused)
+    if (!focusMode) {
+      btnFocus.click();
+    } else if (!current3D) {
+      // Already focused but not in 3D — enter 3D at vessel tile
+      const pos = gps.getPosition();
+      const tile = getTileBoundsAt(pos.lat, pos.lon);
+      onTileClick(tile);
+    }
   }
   navStatus.classList.remove('hidden');
 
@@ -879,7 +881,7 @@ async function onTileClick(tileBounds) {
 
   markerSystem.onMarkerSelect = (data) => panel.show(data);
   markerSystem.onMarkerDeselect = () => panel.hide();
-  panel.onNavigate = (data) => addToItinerary(data);
+  panel.onNavigate = (data) => addToItinerary(data, { enterFocus: true });
   markerSystem.onMarkerChange = () => saveCurrentTileMarkers();
   markerSystem.onMultiSelect = (ids) => { editCount.textContent = `${ids.length} selected`; };
   markerSystem.onHoverUpdate = (geo) => {
