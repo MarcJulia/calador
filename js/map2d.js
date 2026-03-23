@@ -95,33 +95,64 @@ export function createMap(container, callbacks, markerData) {
   // Show individual colored marker dots
   const markerDotsLayer = L.layerGroup().addTo(map);
 
-  function addMarkerDot(m) {
-    const color = m.color || '#40c0ff';
-    const cm = L.circleMarker([m.lat, m.lon], {
-      radius: 5, color: '#fff', fillColor: color,
-      fillOpacity: 0.9, weight: 1.5,
-    }).addTo(markerDotsLayer);
-    cm.bindTooltip(
-      `${m.substrate || 'Marker'}<br>${m.depth?.toFixed(1) || '?'}m`,
-      { className: 'tile-tooltip' }
-    );
-    const popupContent = document.createElement('div');
-    popupContent.className = 'marker-popup';
-    popupContent.innerHTML = `
-      <strong>${m.name || m.substrate || 'Marker'}</strong><br>
+  function buildPopup(m) {
+    const titleIcon = m.icon ? `${m.icon} ` : '';
+    const el = document.createElement('div');
+    el.className = 'marker-popup';
+    el.innerHTML = `
+      <strong>${titleIcon}${m.name || m.substrate || 'Marker'}</strong><br>
       ${m.depth?.toFixed(1) || '?'}m deep<br>
       <div class="marker-popup-actions">
         <button class="marker-nav-btn">Navigate</button>
         <button class="marker-edit-btn">Edit</button>
       </div>`;
-    popupContent.querySelector('.marker-nav-btn').addEventListener('click', () => {
+    el.querySelector('.marker-nav-btn').addEventListener('click', () => {
       if (onMarkerNavigate) onMarkerNavigate(m);
       map.closePopup();
     });
-    popupContent.querySelector('.marker-edit-btn').addEventListener('click', () => {
+    el.querySelector('.marker-edit-btn').addEventListener('click', () => {
       if (onMarkerSelect) onMarkerSelect(m);
       map.closePopup();
     });
+    return el;
+  }
+
+  function addMarkerDot(m) {
+    const color = m.color || '#40c0ff';
+    const label = m.icon || m.name || '';
+
+    // If marker has a name or icon, use a richer labeled marker
+    if (label) {
+      const html = `<div class="marker-label-icon" style="border-color:${color}">
+        <span class="marker-label-text">${label}</span>
+      </div>`;
+      const icon = L.divIcon({
+        className: 'marker-label-wrapper',
+        html,
+        iconSize: null,
+        iconAnchor: [0, 10],
+      });
+      const lm = L.marker([m.lat, m.lon], { icon }).addTo(markerDotsLayer);
+      lm.bindTooltip(
+        `${m.substrate || 'Marker'}<br>${m.depth?.toFixed(1) || '?'}m`,
+        { className: 'tile-tooltip' }
+      );
+      const popupContent = buildPopup(m);
+      lm.bindPopup(popupContent, { className: 'marker-popup-container' });
+      lm._markerData = m;
+      return lm;
+    }
+
+    const cm = L.circleMarker([m.lat, m.lon], {
+      radius: 5, color: '#fff', fillColor: color,
+      fillOpacity: 0.9, weight: 1.5,
+      bubblingMouseEvents: false,
+    }).addTo(markerDotsLayer);
+    cm.bindTooltip(
+      `${m.substrate || 'Marker'}<br>${m.depth?.toFixed(1) || '?'}m`,
+      { className: 'tile-tooltip' }
+    );
+    const popupContent = buildPopup(m);
     cm.bindPopup(popupContent, { className: 'marker-popup-container' });
     cm._markerData = m;
     return cm;

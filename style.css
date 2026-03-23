@@ -875,6 +875,30 @@ textarea { resize: vertical; }
   background: rgba(40, 140, 210, 0.7);
 }
 
+/* 2D map marker labels */
+.marker-label-wrapper {
+  background: none !important;
+  border: none !important;
+}
+
+.marker-label-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(10, 22, 40, 0.85);
+  border: 1.5px solid;
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.marker-label-text {
+  color: #e0f0ff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
 /* Layer selector panel */
 #layer-panel {
   position: absolute;
@@ -1119,6 +1143,45 @@ textarea { resize: vertical; }
 #minimap .leaflet-control-zoom,
 #minimap .leaflet-control-attribution {
   display: none !important;
+}
+
+/* Icon picker */
+#icon-picker {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.icon-option {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 4px;
+  border: 2px solid rgba(100, 160, 220, 0.2);
+  background: rgba(20, 40, 70, 0.5);
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.icon-option:first-child {
+  font-size: 12px;
+  color: #8aa8c8;
+}
+
+.icon-option:hover {
+  transform: scale(1.15);
+  border-color: rgba(200, 220, 255, 0.5);
+  background: rgba(30, 60, 100, 0.6);
+}
+
+.icon-option.active {
+  border-color: #7cb8e4;
+  background: rgba(40, 100, 160, 0.4);
+  box-shadow: 0 0 6px rgba(100, 180, 255, 0.3);
 }
 
 /* Color picker swatches */

@@ -43,7 +43,30 @@ export function createMarkerSystem(scene, camera, canvas, terrain, controls) {
     return { sphere, stem };
   }
 
-  function createMarkerMesh(position) {
+  function createLabelSprite(text) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 64;
+    ctx.fillStyle = 'rgba(10, 22, 40, 0.8)';
+    ctx.roundRect(0, 0, 256, 64, 8);
+    ctx.fill();
+    ctx.fillStyle = '#e0f0ff';
+    ctx.font = 'bold 28px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 128, 32);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(10, 2.5, 1);
+    sprite.position.y = MARKER_HEIGHT + 3;
+    sprite.name = '__label__';
+    return sprite;
+  }
+
+  function createMarkerMesh(position, data) {
     const group = new THREE.Group();
     const sphereMesh = new THREE.Mesh(pinGeometry.sphere, defaultMaterial.clone());
     sphereMesh.position.y = MARKER_HEIGHT;
@@ -56,6 +79,11 @@ export function createMarkerSystem(scene, camera, canvas, terrain, controls) {
     }));
     ring.position.y = 0.1;
     group.add(sphereMesh, stemMesh, ring);
+
+    // Add label if marker has icon or name
+    const label = data?.icon || data?.name;
+    if (label) group.add(createLabelSprite(label));
+
     group.position.copy(position);
     return group;
   }
@@ -63,7 +91,7 @@ export function createMarkerSystem(scene, camera, canvas, terrain, controls) {
   function addMarker(position, data = null) {
     const id = data?.id || crypto.randomUUID();
     const geo = terrain.positionToGeo(position);
-    const mesh = createMarkerMesh(position);
+    const mesh = createMarkerMesh(position, data);
     scene.add(mesh);
     const markerData = data || {
       id, lat: parseFloat(geo.lat.toFixed(4)), lon: parseFloat(geo.lon.toFixed(4)),
@@ -203,7 +231,16 @@ export function createMarkerSystem(scene, camera, canvas, terrain, controls) {
 
   function updateMarkerData(id, newData) {
     const marker = markers.find(m => m.id === id);
-    if (marker) { Object.assign(marker.data, newData); if (onMarkerChange) onMarkerChange(); }
+    if (!marker) return;
+    Object.assign(marker.data, newData);
+    // Update 3D label if name or icon changed
+    if ('name' in newData || 'icon' in newData) {
+      const oldLabel = marker.mesh.children.find(c => c.name === '__label__');
+      if (oldLabel) marker.mesh.remove(oldLabel);
+      const text = marker.data.icon || marker.data.name;
+      if (text) marker.mesh.add(createLabelSprite(text));
+    }
+    if (onMarkerChange) onMarkerChange();
   }
 
   function getAllData() { return markers.map(m => ({ ...m.data })); }

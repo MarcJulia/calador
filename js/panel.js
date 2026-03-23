@@ -35,6 +35,7 @@ export function initPanel() {
   const fieldLat = document.getElementById('field-lat');
   const fieldLon = document.getElementById('field-lon');
   const fieldDepth = document.getElementById('field-depth');
+  const iconPicker = document.getElementById('icon-picker');
   const fieldSubstrate = document.getElementById('field-substrate');
   const fieldTemp = document.getElementById('field-temp');
   const fieldSpecies = document.getElementById('field-species');
@@ -46,8 +47,26 @@ export function initPanel() {
   let currentData = null;
   let currentTags = {};
   let currentColor = '#40c0ff';
+  let currentIcon = '';
   let currentPlacement = 'bottom';
   let onNavigate = null;
+
+  // Icon picker
+  iconPicker.querySelectorAll('.icon-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      currentIcon = opt.dataset.icon;
+      setActiveIcon(currentIcon);
+      if (currentId && store) {
+        store.updateMarkerData(currentId, { icon: currentIcon });
+      }
+    });
+  });
+
+  function setActiveIcon(icon) {
+    iconPicker.querySelectorAll('.icon-option').forEach(o => {
+      o.classList.toggle('active', o.dataset.icon === icon);
+    });
+  }
 
   // Placement toggle
   placementBtns.forEach(btn => {
@@ -84,10 +103,13 @@ export function initPanel() {
     currentData = data;
     currentTags = { ...(data.tags || {}) };
     currentColor = data.color || '#40c0ff';
+    currentIcon = data.icon || '';
     currentPlacement = data.placement || 'bottom';
 
-    panelTitle.textContent = data.name || `Marker ${data.lat.toFixed(2)}°, ${data.lon.toFixed(2)}°`;
+    const titlePrefix = data.icon ? `${data.icon} ` : '';
+    panelTitle.textContent = titlePrefix + (data.name || `Marker ${data.lat.toFixed(2)}°, ${data.lon.toFixed(2)}°`);
     fieldName.value = data.name || '';
+    setActiveIcon(currentIcon);
     fieldLat.value = data.lat;
     fieldLon.value = data.lon;
     fieldDepth.value = data.depth;
@@ -134,6 +156,7 @@ export function initPanel() {
   function collectData() {
     return {
       name: fieldName.value.trim() || '',
+      icon: currentIcon,
       color: currentColor,
       placement: currentPlacement,
       substrate: fieldSubstrate.value,
