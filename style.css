@@ -634,7 +634,7 @@ button.nav-btn:hover {
 
 /* Side Panel */
 #panel {
-  position: absolute;
+  position: fixed;
   top: 50px;
   right: 0;
   width: 320px;
@@ -642,7 +642,7 @@ button.nav-btn:hover {
   background: rgba(12, 24, 44, 0.92);
   backdrop-filter: blur(10px);
   border-left: 1px solid rgba(100, 160, 220, 0.15);
-  z-index: 20;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
   transition: transform 0.3s ease;
@@ -840,20 +840,39 @@ textarea { resize: vertical; }
   line-height: 1.6;
 }
 
-.marker-nav-btn {
+.marker-popup-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
   margin-top: 6px;
+}
+
+.marker-nav-btn, .marker-edit-btn {
   padding: 4px 14px;
-  background: rgba(40, 160, 80, 0.6);
-  border: 1px solid rgba(60, 200, 100, 0.5);
   border-radius: 4px;
-  color: #a0f0c0;
   font-size: 12px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
+.marker-nav-btn {
+  background: rgba(40, 160, 80, 0.6);
+  border: 1px solid rgba(60, 200, 100, 0.5);
+  color: #a0f0c0;
+}
+
 .marker-nav-btn:hover {
   background: rgba(50, 180, 100, 0.7);
+}
+
+.marker-edit-btn {
+  background: rgba(30, 120, 180, 0.6);
+  border: 1px solid rgba(50, 150, 220, 0.5);
+  color: #a0d0f0;
+}
+
+.marker-edit-btn:hover {
+  background: rgba(40, 140, 210, 0.7);
 }
 
 /* Layer selector panel */

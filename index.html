@@ -36,7 +36,7 @@
       <div id="weather-body"></div>
     </div>
     <div id="map-legend">
-      <p>Click any tile to explore the sea floor in 3D</p>
+      <p>Click tile for 3D &middot; Right-click to add marker</p>
     </div>
     <div id="itinerary-panel" class="hidden">
       <div id="itinerary-header">
@@ -115,88 +115,89 @@
     <!-- Satellite minimap inset -->
     <div id="minimap"></div>
 
-    <!-- Side panel for marker data -->
-    <div id="panel" class="hidden">
-      <div id="panel-header">
-        <h2 id="panel-title">Marker Details</h2>
-        <button id="panel-close">&times;</button>
+  </div>
+
+  <!-- Side panel for marker data (shared between 2D and 3D views) -->
+  <div id="panel" class="hidden">
+    <div id="panel-header">
+      <h2 id="panel-title">Marker Details</h2>
+      <button id="panel-close">&times;</button>
+    </div>
+    <div id="panel-body">
+      <div class="field-group">
+        <h3>Location</h3>
+        <label>Latitude
+          <input type="number" id="field-lat" step="0.0001" readonly>
+        </label>
+        <label>Longitude
+          <input type="number" id="field-lon" step="0.0001" readonly>
+        </label>
+        <label>Depth (m)
+          <input type="number" id="field-depth" step="0.1" readonly>
+        </label>
       </div>
-      <div id="panel-body">
-        <div class="field-group">
-          <h3>Location</h3>
-          <label>Latitude
-            <input type="number" id="field-lat" step="0.0001" readonly>
-          </label>
-          <label>Longitude
-            <input type="number" id="field-lon" step="0.0001" readonly>
-          </label>
-          <label>Depth (m)
-            <input type="number" id="field-depth" step="0.1" readonly>
-          </label>
-        </div>
-        <div class="field-group">
-          <h3>Properties</h3>
-          <label>Name
-            <input type="text" id="field-name" placeholder="Optional name">
-          </label>
-          <label>Color
-            <div id="color-picker">
-              <span class="color-swatch" data-color="#ff4444" style="background:#ff4444"></span>
-              <span class="color-swatch" data-color="#ff8800" style="background:#ff8800"></span>
-              <span class="color-swatch" data-color="#ffcc00" style="background:#ffcc00"></span>
-              <span class="color-swatch" data-color="#44cc44" style="background:#44cc44"></span>
-              <span class="color-swatch" data-color="#40c0ff" style="background:#40c0ff"></span>
-              <span class="color-swatch" data-color="#8866ff" style="background:#8866ff"></span>
-              <span class="color-swatch" data-color="#ff44aa" style="background:#ff44aa"></span>
-              <span class="color-swatch" data-color="#ffffff" style="background:#ffffff"></span>
-            </div>
-          </label>
-          <label>Placement
-            <div id="placement-picker">
-              <button class="placement-btn active" data-placement="bottom">Sea Floor</button>
-              <button class="placement-btn" data-placement="surface">Sea Level</button>
-            </div>
-          </label>
-          <label>Substrate Type
-            <select id="field-substrate">
-              <option value="">-- Select --</option>
-              <option value="rock">Rock</option>
-              <option value="sand">Sand</option>
-              <option value="mud">Mud</option>
-              <option value="coral">Coral</option>
-              <option value="gravel">Gravel</option>
-              <option value="seagrass">Seagrass (Posidonia)</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
-          <label>Temperature (&deg;C)
-            <input type="number" id="field-temp" step="0.1" placeholder="e.g. 14.5">
-          </label>
-          <label>Species Observed
-            <input type="text" id="field-species" placeholder="Comma-separated">
-          </label>
-          <label>Date
-            <input type="date" id="field-date">
-          </label>
-        </div>
-        <div class="field-group">
-          <h3>Notes</h3>
-          <textarea id="field-notes" rows="4" placeholder="Free-form notes..."></textarea>
-        </div>
-        <div class="field-group">
-          <h3>Tags</h3>
-          <div id="tags-container"></div>
-          <div id="tag-add-row">
-            <input type="text" id="tag-key" placeholder="Key">
-            <input type="text" id="tag-value" placeholder="Value">
-            <button id="btn-add-tag">+</button>
+      <div class="field-group">
+        <h3>Properties</h3>
+        <label>Name
+          <input type="text" id="field-name" placeholder="Optional name">
+        </label>
+        <label>Color
+          <div id="color-picker">
+            <span class="color-swatch" data-color="#ff4444" style="background:#ff4444"></span>
+            <span class="color-swatch" data-color="#ff8800" style="background:#ff8800"></span>
+            <span class="color-swatch" data-color="#ffcc00" style="background:#ffcc00"></span>
+            <span class="color-swatch" data-color="#44cc44" style="background:#44cc44"></span>
+            <span class="color-swatch" data-color="#40c0ff" style="background:#40c0ff"></span>
+            <span class="color-swatch" data-color="#8866ff" style="background:#8866ff"></span>
+            <span class="color-swatch" data-color="#ff44aa" style="background:#ff44aa"></span>
+            <span class="color-swatch" data-color="#ffffff" style="background:#ffffff"></span>
           </div>
+        </label>
+        <label>Placement
+          <div id="placement-picker">
+            <button class="placement-btn active" data-placement="bottom">Sea Floor</button>
+            <button class="placement-btn" data-placement="surface">Sea Level</button>
+          </div>
+        </label>
+        <label>Substrate Type
+          <select id="field-substrate">
+            <option value="">-- Select --</option>
+            <option value="rock">Rock</option>
+            <option value="sand">Sand</option>
+            <option value="mud">Mud</option>
+            <option value="coral">Coral</option>
+            <option value="gravel">Gravel</option>
+            <option value="seagrass">Seagrass (Posidonia)</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label>Temperature (&deg;C)
+          <input type="number" id="field-temp" step="0.1" placeholder="e.g. 14.5">
+        </label>
+        <label>Species Observed
+          <input type="text" id="field-species" placeholder="Comma-separated">
+        </label>
+        <label>Date
+          <input type="date" id="field-date">
+        </label>
+      </div>
+      <div class="field-group">
+        <h3>Notes</h3>
+        <textarea id="field-notes" rows="4" placeholder="Free-form notes..."></textarea>
+      </div>
+      <div class="field-group">
+        <h3>Tags</h3>
+        <div id="tags-container"></div>
+        <div id="tag-add-row">
+          <input type="text" id="tag-key" placeholder="Key">
+          <input type="text" id="tag-value" placeholder="Value">
+          <button id="btn-add-tag">+</button>
         </div>
-        <div id="panel-actions">
-          <button id="btn-navigate" class="nav-btn">Navigate</button>
-          <button id="btn-save" class="primary">Save</button>
-          <button id="btn-delete" class="danger">Delete</button>
-        </div>
+      </div>
+      <div id="panel-actions">
+        <button id="btn-navigate" class="nav-btn">Navigate</button>
+        <button id="btn-save" class="primary">Save</button>
+        <button id="btn-delete" class="danger">Delete</button>
       </div>
     </div>
   </div>

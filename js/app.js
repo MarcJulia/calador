@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createScene, adjustCamera } from './scene.js';
 import { createTerrain, destroyTerrain, applyOverlay, removeOverlay, prefetchTerrain } from './terrain.js';
 import { createMarkerSystem } from './markers.js';
-import { createPanel } from './panel.js';
+import { initPanel } from './panel.js';
 import { saveToStorage, loadFromStorage } from './data.js';
 import { createMap, createGridSizeSelector, getTileBoundsAt, ORIGIN, RANGE_KM } from './map2d.js';
 import { createBoat } from './boat.js';
@@ -427,10 +427,58 @@ function updateNavStatus(pos) {
   navStatus.textContent = `Next: ${name} · ${fmtDist(dist)}`;
 }
 
+// ===== Shared panel singleton =====
+const panel = initPanel();
+panel.onNavigate = (data) => addToItinerary(data);
+
+// ===== 2D marker store (adapter for panel in 2D mode) =====
+const store2D = {
+  updateMarkerData(id, data) {
+    const idx = allMarkers.findIndex(m => m.id === id);
+    if (idx !== -1) {
+      Object.assign(allMarkers[idx], data);
+      saveToStorage(allMarkers);
+      if (leafletMap) leafletMap.refreshMarkers(allMarkers);
+    }
+  },
+  removeMarker(id) {
+    allMarkers = allMarkers.filter(m => m.id !== id);
+    saveToStorage(allMarkers);
+    if (leafletMap) leafletMap.refreshMarkers(allMarkers);
+  },
+  deselectAll() { /* no-op in 2D */ },
+};
+
+function onMarkerCreate2D(lat, lon) {
+  const newMarker = {
+    id: crypto.randomUUID(),
+    lat, lon, depth: 0,
+    color: '#40c0ff', placement: 'bottom',
+    substrate: '', temperature: null,
+    species: [], date: new Date().toISOString().split('T')[0],
+    notes: '', tags: {}, name: '',
+  };
+  allMarkers.push(newMarker);
+  saveToStorage(allMarkers);
+  if (leafletMap) leafletMap.refreshMarkers(allMarkers);
+  panel.setStore(store2D);
+  panel.show(newMarker);
+}
+
 // ===== Init 2D Map =====
 function initMap() {
   if (leafletMap) { leafletMap.remove(); leafletMap = null; }
-  leafletMap = createMap('map', onTileClick, allMarkers, (m) => addToItinerary(m));
+  panel.hide();
+  panel.setStore(store2D);
+  panel.onNavigate = (data) => addToItinerary(data);
+
+  leafletMap = createMap('map', {
+    onTileClick,
+    onMarkerNavigate: (m) => addToItinerary(m),
+    onMarkerSelect: (m) => { panel.setStore(store2D); panel.show(m); },
+    onMarkerCreate: onMarkerCreate2D,
+  }, allMarkers);
+
   createGridSizeSelector(() => initMap());
   setupGPS2D();
   drawRoute2D();
@@ -877,11 +925,11 @@ async function onTileClick(tileBounds) {
   );
   if (tileMarkers.length > 0) markerSystem.loadMarkers(tileMarkers);
 
-  const panel = createPanel(markerSystem);
+  panel.setStore(markerSystem);
+  panel.onNavigate = (data) => addToItinerary(data, { enterFocus: true });
 
   markerSystem.onMarkerSelect = (data) => panel.show(data);
   markerSystem.onMarkerDeselect = () => panel.hide();
-  panel.onNavigate = (data) => addToItinerary(data, { enterFocus: true });
   markerSystem.onMarkerChange = () => saveCurrentTileMarkers();
   markerSystem.onMultiSelect = (ids) => { editCount.textContent = `${ids.length} selected`; };
   markerSystem.onHoverUpdate = (geo) => {
@@ -894,7 +942,7 @@ async function onTileClick(tileBounds) {
   const stopAnimate = animate();
 
   current3D = {
-    scene, renderer, camera, controls, terrain, markerSystem, panel,
+    scene, renderer, camera, controls, terrain, markerSystem,
     tileBounds,          // original tile (for follow mode)
     terrainBounds,       // actual rendered bounds (may be 3x3)
     stopAnimate, contextGroup, boatObj,

@@ -1,4 +1,22 @@
-export function createPanel(markerSystem) {
+/**
+ * Singleton marker-detail panel.
+ *
+ * Call initPanel() once at startup. It returns { show, hide, setStore, onNavigate }.
+ * Call setStore(store) to swap the backing store (2D adapter vs 3D markerSystem).
+ *
+ * Required store interface:
+ *   updateMarkerData(id, data)
+ *   removeMarker(id)
+ *   deselectAll()
+ *   setMarkerColorByData(id, color)   — optional (live color preview)
+ *   repositionMarker(id)              — optional (placement change)
+ */
+
+let _instance = null;
+
+export function initPanel() {
+  if (_instance) return _instance;
+
   const panel = document.getElementById('panel');
   const panelTitle = document.getElementById('panel-title');
   const btnClose = document.getElementById('panel-close');
@@ -23,11 +41,12 @@ export function createPanel(markerSystem) {
   const fieldDate = document.getElementById('field-date');
   const fieldNotes = document.getElementById('field-notes');
 
+  let store = null;
   let currentId = null;
+  let currentData = null;
   let currentTags = {};
   let currentColor = '#40c0ff';
   let currentPlacement = 'bottom';
-  let currentData = null;
   let onNavigate = null;
 
   // Placement toggle
@@ -35,9 +54,9 @@ export function createPanel(markerSystem) {
     btn.addEventListener('click', () => {
       currentPlacement = btn.dataset.placement;
       placementBtns.forEach(b => b.classList.toggle('active', b === btn));
-      if (currentId) {
-        markerSystem.updateMarkerData(currentId, { placement: currentPlacement });
-        markerSystem.repositionMarker(currentId);
+      if (currentId && store) {
+        store.updateMarkerData(currentId, { placement: currentPlacement });
+        if (store.repositionMarker) store.repositionMarker(currentId);
       }
     });
   });
@@ -47,10 +66,9 @@ export function createPanel(markerSystem) {
     swatch.addEventListener('click', () => {
       currentColor = swatch.dataset.color;
       setActiveColor(currentColor);
-      // Live-update the marker color immediately
-      if (currentId) {
-        markerSystem.updateMarkerData(currentId, { color: currentColor });
-        markerSystem.setMarkerColorByData(currentId, currentColor);
+      if (currentId && store) {
+        store.updateMarkerData(currentId, { color: currentColor });
+        if (store.setMarkerColorByData) store.setMarkerColorByData(currentId, currentColor);
       }
     });
   });
@@ -88,6 +106,7 @@ export function createPanel(markerSystem) {
   function hide() {
     panel.classList.add('hidden');
     currentId = null;
+    currentData = null;
   }
 
   function renderTags() {
@@ -128,18 +147,18 @@ export function createPanel(markerSystem) {
     };
   }
 
-  btnClose.addEventListener('click', () => { hide(); markerSystem.deselectAll(); });
+  btnClose.addEventListener('click', () => { hide(); if (store) store.deselectAll(); });
 
   btnSave.addEventListener('click', () => {
-    if (!currentId) return;
-    markerSystem.updateMarkerData(currentId, collectData());
+    if (!currentId || !store) return;
+    store.updateMarkerData(currentId, collectData());
     btnSave.textContent = 'Saved!';
     setTimeout(() => { btnSave.textContent = 'Save'; }, 1000);
   });
 
   btnDelete.addEventListener('click', () => {
-    if (!currentId) return;
-    if (confirm('Delete this marker?')) { markerSystem.removeMarker(currentId); hide(); }
+    if (!currentId || !store) return;
+    if (confirm('Delete this marker?')) { store.removeMarker(currentId); hide(); }
   });
 
   btnNavigate.addEventListener('click', () => {
@@ -158,10 +177,13 @@ export function createPanel(markerSystem) {
   tagKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') tagValueInput.focus(); });
   tagValueInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') btnAddTag.click(); });
 
-  return {
-    show, hide,
+  _instance = {
+    show,
+    hide,
+    setStore(s) { store = s; },
     set onNavigate(fn) { onNavigate = fn; },
   };
+  return _instance;
 }
 
 export function createMarkerList(markerSystem) {

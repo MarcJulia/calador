@@ -49,7 +49,8 @@ export function getTileBoundsAt(lat, lon) {
   };
 }
 
-export function createMap(container, onTileClick, markerData, onMarkerNavigate) {
+export function createMap(container, callbacks, markerData) {
+  const { onTileClick, onMarkerNavigate, onMarkerSelect, onMarkerCreate } = callbacks;
   const tileSizeM = getStoredGridSize();
 
   // Grid cell size in degrees
@@ -93,7 +94,8 @@ export function createMap(container, onTileClick, markerData, onMarkerNavigate) 
 
   // Show individual colored marker dots
   const markerDotsLayer = L.layerGroup().addTo(map);
-  markerData.forEach(m => {
+
+  function addMarkerDot(m) {
     const color = m.color || '#40c0ff';
     const cm = L.circleMarker([m.lat, m.lon], {
       radius: 5, color: '#fff', fillColor: color,
@@ -108,12 +110,47 @@ export function createMap(container, onTileClick, markerData, onMarkerNavigate) 
     popupContent.innerHTML = `
       <strong>${m.name || m.substrate || 'Marker'}</strong><br>
       ${m.depth?.toFixed(1) || '?'}m deep<br>
-      <button class="marker-nav-btn">Navigate</button>`;
+      <div class="marker-popup-actions">
+        <button class="marker-nav-btn">Navigate</button>
+        <button class="marker-edit-btn">Edit</button>
+      </div>`;
     popupContent.querySelector('.marker-nav-btn').addEventListener('click', () => {
       if (onMarkerNavigate) onMarkerNavigate(m);
       map.closePopup();
     });
+    popupContent.querySelector('.marker-edit-btn').addEventListener('click', () => {
+      if (onMarkerSelect) onMarkerSelect(m);
+      map.closePopup();
+    });
     cm.bindPopup(popupContent, { className: 'marker-popup-container' });
+    cm._markerData = m;
+    return cm;
+  }
+
+  markerData.forEach(m => addMarkerDot(m));
+
+  function refreshMarkers(newData) {
+    markerDotsLayer.clearLayers();
+    newData.forEach(m => addMarkerDot(m));
+  }
+
+  // Right-click to create a new marker
+  map.on('contextmenu', (e) => {
+    if (!onMarkerCreate) return;
+    const lat = parseFloat(e.latlng.lat.toFixed(4));
+    const lon = parseFloat(e.latlng.lng.toFixed(4));
+    const distKm = haversineKm(ORIGIN.lat, ORIGIN.lon, lat, lon);
+    if (distKm > RANGE_KM) return;
+    onMarkerCreate(lat, lon);
+  });
+
+  // Count markers per tile for hover tooltip
+  const markerTiles = new Map();
+  markerData.forEach(m => {
+    const mLatCell = Math.floor(m.lat / latDeg) * latDeg;
+    const mLonCell = Math.floor(m.lon / lonDeg) * lonDeg;
+    const key = `${mLatCell.toFixed(6)},${mLonCell.toFixed(6)}`;
+    markerTiles.set(key, (markerTiles.get(key) || 0) + 1);
   });
 
   // --- Single hover rectangle that follows the mouse ---
@@ -213,6 +250,7 @@ export function createMap(container, onTileClick, markerData, onMarkerNavigate) 
     });
   });
 
+  map.refreshMarkers = refreshMarkers;
   return map;
 }
 
