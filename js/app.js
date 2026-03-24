@@ -482,7 +482,7 @@ function initMap() {
   createGridSizeSelector(() => initMap());
   setupGPS2D();
   drawRoute2D();
-  initWeather(leafletMap);
+  initWeather(leafletMap, () => gpsMapMarker ? gpsMapMarker.getLatLng() : null);
 }
 
 // ===== GPS on 2D map =====

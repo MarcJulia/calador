@@ -119,7 +119,7 @@ function renderPanel(container, wx, marine) {
  * Initialize weather panel and radar overlay toggle.
  * @param {L.Map} map - Leaflet map instance
  */
-export function initWeather(map) {
+export function initWeather(map, getBoatLatLng) {
   const panel = document.getElementById('weather-panel');
   const body = document.getElementById('weather-body');
   const toggle = document.getElementById('weather-toggle');
@@ -127,11 +127,31 @@ export function initWeather(map) {
 
   if (!panel || !body) return;
 
-  // Zoom level display
-  const zoomEl = document.getElementById('map-zoom');
-  function updateZoom() { zoomEl.textContent = `z${map.getZoom()}`; }
-  updateZoom();
-  map.on('zoomend', updateZoom);
+  // Zoom slider
+  const zoomLabel = document.getElementById('map-zoom-label');
+  const zoomSlider = document.getElementById('map-zoom');
+  let updatingFromMap = false;
+
+  function updateZoomDisplay() {
+    const z = Math.round(map.getZoom());
+    zoomLabel.textContent = `z${z}`;
+    updatingFromMap = true;
+    zoomSlider.value = z;
+    updatingFromMap = false;
+  }
+  updateZoomDisplay();
+  map.on('zoomend', updateZoomDisplay);
+
+  zoomSlider.addEventListener('input', () => {
+    if (!updatingFromMap) {
+      const boatLL = getBoatLatLng && getBoatLatLng();
+      if (boatLL) {
+        map.setView(boatLL, Number(zoomSlider.value));
+      } else {
+        map.setZoom(Number(zoomSlider.value));
+      }
+    }
+  });
 
   // Collapse / expand
   let collapsed = false;

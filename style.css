@@ -321,7 +321,10 @@ body {
 
 #weather-header-right {
   display: flex;
+  align-items: center;
   gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 #weather-toggle {
@@ -333,10 +336,42 @@ body {
   border: 1px solid rgba(100, 160, 220, 0.2);
 }
 
-#map-zoom {
+#map-zoom-label {
   font-size: 10px;
   color: #5a7a98;
   font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+#map-zoom {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 60px;
+  height: 4px;
+  background: rgba(100, 160, 220, 0.25);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+#map-zoom::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #5a9ad0;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+
+#map-zoom::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #5a9ad0;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
 }
 
 #btn-radar {
