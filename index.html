@@ -9,6 +9,18 @@
 </head>
 <body>
 
+  <!-- ===== LOGIN SCREEN ===== -->
+  <div id="login-screen">
+    <div id="login-box">
+      <h1>Calador</h1>
+      <p>Sea Floor Explorer</p>
+      <input type="tel" id="login-password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="off">
+      <div id="pin-dots"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <button id="login-btn">Enter</button>
+      <p id="login-error" class="hidden">Wrong code</p>
+    </div>
+  </div>
+
   <!-- ===== 2D MAP VIEW ===== -->
   <div id="view-map">
     <div id="map"></div>
@@ -17,6 +29,7 @@
       <span class="subtitle">Colonia de Sant Jordi — Day Trip Range</span>
       <div id="grid-size-selector"></div>
       <div id="map-toolbar-right">
+        <button id="btn-lock" title="Set or change PIN">Lock</button>
         <button id="btn-itinerary" title="Show navigation route">Route (0)</button>
         <div id="marker-search">
           <input type="text" id="search-input" placeholder="Search markers...">

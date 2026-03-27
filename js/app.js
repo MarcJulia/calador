@@ -1251,18 +1251,151 @@ btnAddMode.addEventListener('click', () => {
   btnAddMode.textContent = ms.addMode ? 'Adding...' : '+ Marker';
 });
 
-// ===== Start =====
-initMap();
+// ===== PIN / Login gate =====
 
-// Start GPS and wire updates to both views
-gps.onPosition((pos) => {
-  updateGPS2D(pos);
-  updateGPS3D(pos);
-  updateMinimap(pos);
-  updateRoute2D(pos);
-  updateRoute3D(pos);
-  updateNavStatus(pos);
-  checkPreload(pos);
-  checkFollowTileChange(pos);
-});
-gps.start();
+async function sha256(text) {
+  const data = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function updatePinDots(len) {
+  const dots = document.querySelectorAll('#pin-dots span');
+  dots.forEach((d, i) => d.classList.toggle('filled', i < len));
+}
+
+function getStoredPinHash() {
+  return localStorage.getItem('calador-pin');
+}
+
+function startApp() {
+  document.getElementById('login-screen').classList.add('hidden');
+  initMap();
+
+  gps.onPosition((pos) => {
+    updateGPS2D(pos);
+    updateGPS3D(pos);
+    updateMinimap(pos);
+    updateRoute2D(pos);
+    updateRoute3D(pos);
+    updateNavStatus(pos);
+    checkPreload(pos);
+    checkFollowTileChange(pos);
+  });
+  gps.start();
+}
+
+// --- Change PIN dialog ---
+function showChangePinDialog() {
+  // Remove existing dialog if any
+  const existing = document.getElementById('pin-dialog');
+  if (existing) existing.remove();
+
+  const hasPin = !!getStoredPinHash();
+  const dialog = document.createElement('div');
+  dialog.id = 'pin-dialog';
+  dialog.innerHTML = `
+    <div id="pin-dialog-box">
+      <h3>${hasPin ? 'Change PIN' : 'Set PIN'}</h3>
+      ${hasPin ? '<label>Current PIN<input type="tel" id="pin-current" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off"></label>' : ''}
+      <label>New PIN (6 digits)<input type="tel" id="pin-new" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off"></label>
+      <label>Confirm PIN<input type="tel" id="pin-confirm" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off"></label>
+      <p id="pin-dialog-error" class="hidden"></p>
+      <div id="pin-dialog-actions">
+        ${hasPin ? '<button id="pin-remove" class="danger">Remove PIN</button>' : ''}
+        <button id="pin-cancel">Cancel</button>
+        <button id="pin-save" class="primary">Save</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(dialog);
+
+  // Filter all inputs to digits only
+  dialog.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('input', () => { inp.value = inp.value.replace(/\D/g, '').slice(0, 6); });
+  });
+
+  const errEl = document.getElementById('pin-dialog-error');
+  function showErr(msg) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+
+  document.getElementById('pin-cancel').addEventListener('click', () => dialog.remove());
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.remove(); });
+
+  document.getElementById('pin-save').addEventListener('click', async () => {
+    const newPin = document.getElementById('pin-new').value;
+    const confirmPin = document.getElementById('pin-confirm').value;
+
+    if (hasPin) {
+      const curPin = document.getElementById('pin-current').value;
+      if (!/^\d{6}$/.test(curPin)) { showErr('Enter your current 6-digit PIN'); return; }
+      const curHash = await sha256(curPin);
+      if (curHash !== getStoredPinHash()) { showErr('Current PIN is incorrect'); return; }
+    }
+
+    if (!/^\d{6}$/.test(newPin)) { showErr('New PIN must be exactly 6 digits'); return; }
+    if (newPin !== confirmPin) { showErr('PINs do not match'); return; }
+
+    localStorage.setItem('calador-pin', await sha256(newPin));
+    sessionStorage.setItem('calador-auth', '1');
+    dialog.remove();
+  });
+
+  if (hasPin) {
+    document.getElementById('pin-remove').addEventListener('click', async () => {
+      const curPin = document.getElementById('pin-current').value;
+      if (!/^\d{6}$/.test(curPin)) { showErr('Enter your current PIN to remove it'); return; }
+      const curHash = await sha256(curPin);
+      if (curHash !== getStoredPinHash()) { showErr('Current PIN is incorrect'); return; }
+      localStorage.removeItem('calador-pin');
+      sessionStorage.removeItem('calador-auth');
+      dialog.remove();
+    });
+  }
+}
+
+// Wire up the lock button on the 2D toolbar
+document.getElementById('btn-lock').addEventListener('click', showChangePinDialog);
+
+// --- Boot logic ---
+const pinHash = getStoredPinHash();
+
+if (!pinHash || sessionStorage.getItem('calador-auth') === '1') {
+  // No PIN set, or already authenticated this session
+  startApp();
+} else {
+  const loginBtn = document.getElementById('login-btn');
+  const loginPwd = document.getElementById('login-password');
+  const loginErr = document.getElementById('login-error');
+  const loginBox = document.getElementById('login-box');
+
+  loginPwd.addEventListener('input', () => {
+    loginPwd.value = loginPwd.value.replace(/\D/g, '').slice(0, 6);
+    updatePinDots(loginPwd.value.length);
+    loginErr.classList.add('hidden');
+    if (loginPwd.value.length === 6) tryLogin();
+  });
+
+  async function tryLogin() {
+    const pin = loginPwd.value;
+    if (!/^\d{6}$/.test(pin)) return;
+    const hash = await sha256(pin);
+    if (hash === getStoredPinHash()) {
+      sessionStorage.setItem('calador-auth', '1');
+      startApp();
+    } else {
+      loginErr.classList.remove('hidden');
+      loginBox.classList.remove('shake');
+      void loginBox.offsetWidth;
+      loginBox.classList.add('shake');
+      loginPwd.value = '';
+      updatePinDots(0);
+      loginPwd.focus();
+    }
+  }
+
+  loginBtn.addEventListener('click', tryLogin);
+  loginPwd.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryLogin(); });
+
+  document.getElementById('login-screen').addEventListener('click', () => loginPwd.focus());
+  loginPwd.focus();
+}
